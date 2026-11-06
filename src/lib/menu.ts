@@ -1,3 +1,5 @@
+import { IMAGES } from "./images";
+
 export type Dish = { name: string; price: string; desc?: string };
 export type Section = { id: string; title: string; image: string; dishes: Dish[] };
 
@@ -5,7 +7,7 @@ export const MENU: Section[] = [
   {
     id: "antipasti",
     title: "Antipasti",
-    image: "",
+    image: IMAGES.antipasti,
     dishes: [
       { name: "Crocchè di Patate", price: "2,00", desc: "Patate, fiordilatte, pepe, prezzemolo, panatura croccante" },
       { name: "Fiore di Zucca Ripieno", price: "3,00", desc: "Fiore di zucca, ricottina, provola, fritto in pastella" },
@@ -17,7 +19,7 @@ export const MENU: Section[] = [
   {
     id: "primi",
     title: "Primi Piatti",
-    image: "",
+    image: IMAGES.primi,
     dishes: [
       { name: "Pasta e Fagioli con Cozze", price: "9,00", desc: "Pasta mista, fagioli e cozze fresche" },
       { name: "Ziti alla Genovese", price: "10,00", desc: "Ziti spezzati a mano con cipolle stufate e manzo" },
@@ -27,7 +29,7 @@ export const MENU: Section[] = [
   {
     id: "secondi",
     title: "Secondi Piatti",
-    image: "",
+    image: IMAGES.secondi,
     dishes: [
       { name: "Parmigiana di Melanzane", price: "5,00", desc: "Melanzane fritte, pomodoro, provola" },
       { name: "Polpette al Ragù", price: "6,00", desc: "Polpette di carne affogate nel ragù napoletano" },
@@ -38,7 +40,7 @@ export const MENU: Section[] = [
   {
     id: "pizze",
     title: "Pizze",
-    image: "",
+    image: IMAGES.pizze,
     dishes: [
       { name: "Margherita", price: "6,00", desc: "Pomodoro, mozzarella, basilico" },
       { name: "Marinara", price: "5,00", desc: "Pomodoro, aglio, origano, olio EVO" },
@@ -48,7 +50,7 @@ export const MENU: Section[] = [
   {
     id: "dolci",
     title: "Dolci",
-    image: "",
+    image: IMAGES.dolci,
     dishes: [
       { name: "Babà", price: "4,00", desc: "Babà al rum napoletano" },
       { name: "Tiramisu", price: "5,00", desc: "Mascarpone, caffè, cacao" },

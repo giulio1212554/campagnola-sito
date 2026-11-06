@@ -4,7 +4,8 @@ import { Star, Quote, MapPin, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale, SectionTitle, MAPS, ADDRESS } from "@/components/site-shell";
 import { MENU, HOURS, EN, romeNow, isOpen } from "@/lib/menu";
-import { REVIEWS, type Lang } from "@/lib/i18n";
+import { IMAGES } from "@/lib/images";
+import { REVIEWS } from "@/lib/i18n";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/")({
       },
       { property: "og:title", content: "Trattoria Enoteca Campagnola — Napoli dal 1947" },
       { property: "og:type", content: "restaurant" },
+      { property: "og:image", content: IMAGES.hero },
     ],
   }),
   component: Home,
@@ -48,7 +50,12 @@ function Home() {
 
   return (
     <>
-      <section className="relative flex min-h-[78svh] items-end overflow-hidden bg-background">
+      <section className="relative flex min-h-[78svh] items-end overflow-hidden">
+        <img
+          src={IMAGES.hero}
+          alt="Via dei Tribunali, Napoli"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
         <div className="absolute inset-0 bg-hero-fade" />
         <div className="relative mx-auto max-w-3xl px-5 pb-14 pt-16 text-center">
           <p className="text-xs uppercase text-accent">{t.since}</p>
@@ -73,18 +80,30 @@ function Home() {
         <h2 className="mt-3 text-3xl font-medium sm:text-5xl">{t.storyT}</h2>
         <div className="mt-4 h-px w-16 bg-primary" />
         <p className="mt-5 text-sm leading-relaxed text-muted-foreground sm:text-base">{t.story1}</p>
+        <img
+          src={IMAGES.storia}
+          alt={t.storyT}
+          width={1280}
+          height={1920}
+          loading="lazy"
+          className="mt-8 aspect-[2/3] w-full rounded-lg object-cover shadow-2xl"
+        />
       </section>
 
       <section data-reveal className="mx-auto max-w-5xl px-5 pb-20">
         <SectionTitle kicker={t.menuK} title={t.menuT} />
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-5">
           {MENU.map((s) => (
-            <Link
-              key={s.id}
-              to="/menu"
-              className="rounded-lg border border-border bg-card/40 p-4 text-center transition hover:border-accent"
-            >
-              <p className="font-serif text-xl text-accent">{lang === "en" ? EN[s.title] ?? s.title : s.title}</p>
+            <Link to="/menu" key={s.id} className="text-center">
+              <img
+                src={s.image}
+                alt={lang === "en" ? EN[s.title] ?? s.title : s.title}
+                className="aspect-square w-full rounded-full object-cover"
+                loading="lazy"
+              />
+              <h3 className="mt-3 text-xl">
+                {lang === "en" ? EN[s.title] ?? s.title : s.title}
+              </h3>
             </Link>
           ))}
         </div>
