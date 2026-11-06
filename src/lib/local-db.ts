@@ -46,7 +46,8 @@ type DbShape = {
   solutions: Solution[];
 };
 
-const DATA_DIR = join(process.cwd(), ".data");
+// Vercel/Lambda: only /tmp is writable (never process.cwd())
+const DATA_DIR = join("/tmp", "campagnola-data");
 const DB_PATH = join(DATA_DIR, "db.json");
 
 const DEFAULT_TABLES: TableRow[] = [
@@ -81,10 +82,18 @@ function defaultDb(): DbShape {
 }
 
 function ensureDb(): DbShape {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {
+    console.error("mkdir DATA_DIR failed", e);
+  }
   if (!existsSync(DB_PATH)) {
     const db = defaultDb();
-    writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+    try {
+      writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+    } catch (e) {
+      console.error("write db failed", e);
+    }
     return db;
   }
   try {
@@ -96,15 +105,19 @@ function ensureDb(): DbShape {
 }
 
 function saveDb(db: DbShape) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+  try {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+  } catch (e) {
+    console.error("local-db save failed", e);
+  }
 }
 
 export function getSettings(): AppSettings {
   return ensureDb().settings;
 }
 
-export function getTables(): TableRow[] {
+nexport function getTables(): TableRow[] {
   return [...ensureDb().tables].sort((a, b) => a.sort_order - b.sort_order);
 }
 
