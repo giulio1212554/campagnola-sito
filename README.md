@@ -1,27 +1,39 @@
 # Trattoria Enoteca Campagnola
 
-Sito prenotazioni + admin operativo (TanStack Start + Supabase).
+Sito ristorante: **Home · Menù · Prenota · Admin**.
 
-## Pagine
-- `/` Home
-- `/menu` Menù con allergeni
-- `/prenota` Codice + QR check-in
-- `/admin` Staff (PIN)
+## Stack
 
-## Admin tabs
-Prenotazioni · Sala · Cucina · Conti · Menù (ghost) · Team · Offerte · Chat
+- TanStack Start + React + Tailwind
+- Storage **locale** (file `.data/db.json`) — **niente Supabase**
+- Prenotazioni con codice + QR
+- Admin con PIN (default `1234`)
 
-## Setup
+## Avvio
+
 ```bash
-cp .env.example .env
-npm i && npm run dev
+npm install
+npm run dev
 ```
 
-## Env richiesti
-- SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MANAGER_PIN
-- VITE_SUPABASE_*
+## Admin
 
-## Deploy Vercel
-Collega questo repo e imposta le stesse env (soprattutto SERVICE_ROLE e MANAGER_PIN).
+- URL: `/admin`
+- PIN: `1234` (opzionale: env `MANAGER_PIN`)
 
-Menù editor in admin è **ghost** (non salva in produzione).
+Tab: prenotazioni, sala, cucina, conti, menù (ghost), team, offerte.
+
+## Pagine
+
+| Route | Contenuto |
+|-------|-----------|
+| `/` | Bio, menù, recensioni, orari, mappa |
+| `/menu` | Piatti + allergeni al click |
+| `/prenota` | Form → codice + QR check-in |
+| `/admin` | Area staff |
+
+## Deploy (Vercel)
+
+Nessuna chiave Supabase richiesta. Opzionale: `MANAGER_PIN`.
+
+Su Vercel lo storage file è **ephemeral** (si resetta al redeploy). Per produzione persistente serve un volume o un DB esterno.
