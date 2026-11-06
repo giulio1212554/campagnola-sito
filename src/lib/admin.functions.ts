@@ -157,7 +157,7 @@ export const addOrder = createServerFn({ method: "POST" })
     if (!table) throw new Error("Tavolo non disponibile");
     const item = ensureMenuSeeded().find((m) => m.id === data.menu_id);
     if (!item || !item.available) throw new Error("Piatto non disponibile");
-    addOrderItem({
+    const row = addOrderItem({
       tableId,
       tableLabel: table.label,
       dishId: item.id,
@@ -165,9 +165,18 @@ export const addOrder = createServerFn({ method: "POST" })
       basePrice: item.price,
       qty: data.quantity,
       mods: data.notes ?? "",
-      createdBy: context.staff.name,
+      createdBy: context.staff.name ?? "staff",
     });
-    return { ok: true };
+    return {
+      ok: true,
+      order: {
+        id: row.id,
+        table_id: String(row.tableId),
+        dish_name: row.dishName,
+        status: row.status,
+        notes: row.mods,
+      },
+    };
   });
 
 export const orderStatus = createServerFn({ method: "POST" })
