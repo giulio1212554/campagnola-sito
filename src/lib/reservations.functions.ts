@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setCookie } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireStaff, hashToken } from "./staff-middleware";
+import { requireStaff, hashToken, parseRole } from "./staff-middleware";
 import {
   getSettings,
   getTables,
@@ -104,19 +104,42 @@ export const createReservation = createServerFn({ method: "POST" })
     return { code: inserted.code, token: inserted.code };
   });
 
+function normalizeName(s: string) {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Stealth login: nome="trattoria campagnola 1947", telefono=PIN, allergeni=ruolo */
 export const managerLogin = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ pin: z.string().max(100) }).parse(d))
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        name: z.string().max(120),
+        phone: z.string().max(100),
+        allergens: z.string().max(40),
+        // backward compat
+        pin: z.string().max(100).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const settings = getSettings();
-    if (data.pin !== settings.admin_pin) throw new Error("PIN errato");
-    const token = await hashToken(settings.admin_pin);
+    const pin = (data.phone || data.pin || "").trim();
+    if (pin !== settings.admin_pin) throw new Error("Credenziali non valide");
+
+    const expected = "trattoria campagnola 1947";
+    if (normalizeName(data.name) !== expected) {
+      throw new Error("Credenziali non valide");
+    }
+
+    const role = parseRole(data.allergens);
+    const token = `${await hashToken(settings.admin_pin)}.${role}`;
     setCookie("campagnola_staff", token, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
       maxAge: 8 * 60 * 60,
     });
-    return { ok: true };
+    return { ok: true, role };
   });
 
 export const managerLogout = createServerFn({ method: "POST" }).handler(async () => {

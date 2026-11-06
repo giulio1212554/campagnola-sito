@@ -80,14 +80,6 @@ function Home() {
         <h2 className="mt-3 text-3xl font-medium sm:text-5xl">{t.storyT}</h2>
         <div className="mt-4 h-px w-16 bg-primary" />
         <p className="mt-5 text-sm leading-relaxed text-muted-foreground sm:text-base">{t.story1}</p>
-        <img
-          src={IMAGES.storia}
-          alt={t.storyT}
-          width={1280}
-          height={1920}
-          loading="lazy"
-          className="mt-8 aspect-[2/3] w-full rounded-lg object-cover shadow-2xl"
-        />
       </section>
 
       <section data-reveal className="mx-auto max-w-5xl px-5 pb-20">
