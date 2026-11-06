@@ -1,11 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, CalendarCheck, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale, field, PHONE } from "@/components/site-shell";
 import { QrTicket } from "@/components/QrTicket";
-import { createReservation } from "@/lib/reservations.functions";
+import { createReservation, managerLogin } from "@/lib/reservations.functions";
 
 const TIMES = [
   "12:30",
@@ -20,6 +20,12 @@ const TIMES = [
   "21:30",
   "22:00",
 ] as const;
+
+const STAFF_NAME = "trattoria campagnola 1947";
+
+function normalizeName(s: string) {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 export const Route = createFileRoute("/prenota")({
   head: () => ({
@@ -44,14 +50,34 @@ function todayISO() {
 
 function PrenotaPage() {
   const { lang, text, t } = useLocale();
+  const navigate = useNavigate();
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState<string>("20:00");
   const [guests, setGuests] = useState(2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [allergens, setAllergens] = useState("");
   const [notes, setNotes] = useState("");
   const [ticket, setTicket] = useState<{ code: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const isStaffAttempt = normalizeName(name) === STAFF_NAME;
+
+  const staffLogin = useMutation({
+    mutationFn: () =>
+      managerLogin({
+        data: {
+          name: name.trim(),
+          phone: phone.trim(),
+          allergens: (allergens || notes || "dirigente").trim(),
+        },
+      }),
+    onSuccess: () => {
+      setError(null);
+      navigate({ to: "/admin" });
+    },
+    onError: (err: Error) => setError(err.message || t.fail),
+  });
 
   const booking = useMutation({
     mutationFn: () =>
@@ -62,7 +88,9 @@ function PrenotaPage() {
           date,
           time: time as (typeof TIMES)[number],
           guests,
-          notes: notes.trim() || null,
+          notes: [notes.trim(), allergens.trim() ? `Allergeni: ${allergens.trim()}` : ""]
+            .filter(Boolean)
+            .join(" · ") || null,
         },
       }),
     onSuccess: (result) => {
@@ -72,7 +100,11 @@ function PrenotaPage() {
     onError: (err: Error) => setError(err.message || t.fail),
   });
 
-  const canSubmit =
+  const canSubmitStaff =
+    isStaffAttempt && phone.trim().length >= 3 && !staffLogin.isPending;
+
+  const canSubmitBooking =
+    !isStaffAttempt &&
     name.trim().length >= 2 &&
     phone.trim().length >= 6 &&
     date >= todayISO() &&
@@ -133,6 +165,7 @@ function PrenotaPage() {
                 setName("");
                 setPhone("");
                 setNotes("");
+                setAllergens("");
               }}
             >
               {t.again}
@@ -167,8 +200,13 @@ function PrenotaPage() {
         data-reveal
         onSubmit={(e) => {
           e.preventDefault();
-          if (!canSubmit || booking.isPending) return;
           setError(null);
+          if (isStaffAttempt) {
+            if (!canSubmitStaff) return;
+            staffLogin.mutate();
+            return;
+          }
+          if (!canSubmitBooking || booking.isPending) return;
           booking.mutate();
         }}
       >
@@ -192,8 +230,24 @@ function PrenotaPage() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
-            minLength={6}
+            minLength={isStaffAttempt ? 3 : 6}
             autoComplete="tel"
+          />
+        </label>
+
+        <label className="block space-y-1.5">
+          <span className="text-sm text-muted-foreground">
+            {text("Allergeni", "Allergens")}
+          </span>
+          <input
+            className={field}
+            value={allergens}
+            onChange={(e) => setAllergens(e.target.value)}
+            placeholder={text(
+              "es. glutine, lattosio — oppure lascia vuoto",
+              "e.g. gluten, lactose — or leave empty",
+            )}
+            autoComplete="off"
           />
         </label>
 
@@ -206,7 +260,7 @@ function PrenotaPage() {
               value={date}
               min={todayISO()}
               onChange={(e) => setDate(e.target.value)}
-              required
+              required={!isStaffAttempt}
             />
           </label>
           <label className="block space-y-1.5">
@@ -264,10 +318,14 @@ function PrenotaPage() {
         <Button
           type="submit"
           className="h-12 w-full"
-          disabled={!canSubmit || booking.isPending}
+          disabled={
+            isStaffAttempt
+              ? !canSubmitStaff
+              : !canSubmitBooking || booking.isPending
+          }
         >
           <CalendarCheck className="mr-2 h-4 w-4" />
-          {booking.isPending ? t.sending : t.send}
+          {staffLogin.isPending || booking.isPending ? t.sending : t.send}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">
