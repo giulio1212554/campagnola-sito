@@ -1,0 +1,6 @@
+- [x] Home / Menu / Prenota + scroll reveal
+- [x] Allergeni menù
+- [x] QR + codice check-in
+- [x] Full admin tabs
+- [x] Ghost menu editor
+- [ ] Verifica E2E con SERVICE_ROLE e MANAGER_PIN su Vercel
