@@ -38,7 +38,9 @@ const ROLE_TABS: Record<Role, Tab[]> = {
 
 function AdminPage() {
   const qc = useQueryClient();
-  const [pin, setPin] = useState("");
+  const [loginName, setLoginName] = useState("");
+  const [loginPhone, setLoginPhone] = useState("");
+  const [loginAllergens, setLoginAllergens] = useState("dirigente");
   const [date, setDate] = useState(todayISO());
   const [tab, setTab] = useState<Tab>("prenotazioni");
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +66,14 @@ function AdminPage() {
   }, [role, tab, allowedTabs]);
 
   const login = useMutation({
-    mutationFn: () => managerLogin({ data: { pin } }),
+    mutationFn: () =>
+      managerLogin({
+        data: {
+          name: loginName,
+          phone: loginPhone,
+          allergens: loginAllergens,
+        },
+      }),
     onSuccess: () => {
       setError(null);
       qc.invalidateQueries({ queryKey: ["staff-session"] });
@@ -308,17 +317,47 @@ function AdminPage() {
     return (
       <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 px-5">
         <h1 className="font-serif text-3xl">Area riservata</h1>
-        <p className="text-sm text-muted-foreground">Inserisci il PIN gestore</p>
-        <input
-          type="password"
-          className="w-full rounded-md border border-input bg-background px-3 py-3"
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && login.mutate()}
-          placeholder="PIN"
-        />
+        <p className="text-sm text-muted-foreground">Accesso staff</p>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Nome e cognome</label>
+          <input
+            className="w-full rounded-md border border-input bg-background px-3 py-3"
+            value={loginName}
+            onChange={(e) => setLoginName(e.target.value)}
+            placeholder="Nome e cognome"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Telefono</label>
+          <input
+            type="password"
+            className="w-full rounded-md border border-input bg-background px-3 py-3"
+            value={loginPhone}
+            onChange={(e) => setLoginPhone(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && login.mutate()}
+            placeholder="Telefono"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Allergeni</label>
+          <select
+            className="w-full rounded-md border border-input bg-background px-3 py-3"
+            value={loginAllergens}
+            onChange={(e) => setLoginAllergens(e.target.value)}
+          >
+            <option value="dirigente">dirigente</option>
+            <option value="cuoco">cuoco</option>
+            <option value="cassiere">cassiere</option>
+            <option value="cameriere">cameriere</option>
+          </select>
+        </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button onClick={() => login.mutate()} disabled={login.isPending || pin.length < 3}>
+        <Button
+          onClick={() => login.mutate()}
+          disabled={login.isPending || loginName.trim().length < 3 || loginPhone.length < 3}
+        >
           {login.isPending ? "Accesso…" : "Entra"}
         </Button>
         <Button asChild variant="link">
@@ -556,56 +595,6 @@ function AdminPage() {
                 </button>
               ))}
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div>
-                <p className="text-lg font-semibold">
-                  {floor.filter((t: any) => t.status !== "free").length}
-                </p>
-                <p className="text-[10px] text-white/40">tavoli</p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold">
-                  {floor.reduce((s: number, t: any) => s + (t.guestCount ?? 0), 0)}
-                </p>
-                <p className="text-[10px] text-white/40">coperti</p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold">
-                  {tables.length
-                    ? Math.round(
-                        (floor.filter((t: any) => t.status !== "free").length / tables.length) *
-                          100,
-                      )
-                    : 0}
-                  %
-                </p>
-                <p className="text-[10px] text-white/40">occup.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {tables.map((t: any) => {
-              const tableOrders = openOrders.filter((o: any) => o.table_id === t.id);
-              return (
-                <div key={t.id} className="rounded-lg border border-border p-4">
-                  <p className="font-serif text-xl">{t.label}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t.zone} · {t.capacity} posti
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm">
-                    {tableOrders.map((o: any) => (
-                      <li key={o.id}>
-                        {o.quantity}× {o.dish_name} — {o.status}
-                      </li>
-                    ))}
-                    {!tableOrders.length && (
-                      <li className="text-muted-foreground">Nessun ordine aperto</li>
-                    )}
-                  </ul>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}
@@ -624,7 +613,7 @@ function AdminPage() {
                     {o.quantity}× {o.dish_name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Tavolo {o.table_id} · {o.status} · {o.notes || "—"}
+                    Tavolo {o.table_id} · {o.status}
                   </p>
                 </div>
                 <div className="flex gap-1">
@@ -680,14 +669,11 @@ function AdminPage() {
       {tab === "menu" && (
         <div className="space-y-2">
           <p className="rounded-md border border-accent/40 bg-accent/10 p-3 text-sm">
-            Editor menù in modalità ghost: le modifiche non vengono salvate. Per aggiornare il menù
-            contatta lo sviluppatore.
+            Editor menù in modalità ghost: le modifiche non vengono salvate.
           </p>
           {menu.map((m: any) => (
             <div key={m.id} className="flex justify-between border-b border-border py-2 text-sm">
-              <span>
-                {m.name} <span className="text-muted-foreground">({m.category})</span>
-              </span>
+              <span>{m.name}</span>
               <span className="text-primary">€ {Number(m.price).toFixed(2)}</span>
             </div>
           ))}
@@ -726,19 +712,13 @@ function AdminPage() {
             >
               {addStaffMut.isPending ? "Salvataggio…" : "Aggiungi"}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Password iniziale: change-me · I ruoli limitano le tab visibili.
-            </p>
           </div>
           {team.map((m: any) => (
             <div key={m.email || m.id} className="rounded-lg border border-border p-3 text-sm">
               <span className="font-medium">{m.display_name}</span> · {m.email} ·{" "}
-              <span className="text-primary">{m.role}</span> · {m.active ? "attivo" : "off"}
+              <span className="text-primary">{m.role}</span>
             </div>
           ))}
-          {!team.length && (
-            <p className="text-sm text-muted-foreground">Nessuno staff registrato.</p>
-          )}
         </div>
       )}
 
@@ -747,12 +727,8 @@ function AdminPage() {
           {offers.map((o: any) => (
             <div key={o.id} className="rounded-lg border border-border p-3 text-sm">
               {o.title} · {o.active ? "attiva" : "off"}
-              {o.price != null && ` · € ${Number(o.price).toFixed(2)}`}
             </div>
           ))}
-          {!offers.length && (
-            <p className="text-sm text-muted-foreground">Nessuna offerta.</p>
-          )}
         </div>
       )}
 
