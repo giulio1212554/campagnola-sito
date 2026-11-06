@@ -12,6 +12,7 @@ import {
 } from "@/lib/reservations.functions";
 import {
   staffData,
+  addOrder,
   orderStatus,
   payTable,
   saveStaff,
@@ -26,14 +27,45 @@ function todayISO() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
 }
 
-type Tab = "prenotazioni" | "sala" | "cucina" | "conti" | "menu" | "team" | "offerte";
+type Tab =
+  | "prenotazioni"
+  | "sala"
+  | "ordini"
+  | "cucina"
+  | "conti"
+  | "dashboard"
+  | "team"
+  | "menu";
 type Role = "dirigente" | "cuoco" | "cassiere" | "cameriere";
 
 const ROLE_TABS: Record<Role, Tab[]> = {
-  dirigente: ["prenotazioni", "sala", "cucina", "conti", "menu", "team", "offerte"],
+  dirigente: ["dashboard", "sala", "prenotazioni", "cucina", "conti", "team", "menu"],
   cuoco: ["cucina"],
   cassiere: ["conti", "sala"],
-  cameriere: ["prenotazioni", "sala", "cucina"],
+  cameriere: ["prenotazioni", "sala", "ordini", "cucina"],
+};
+
+const COMMON_ING = [
+  "aglio",
+  "cipolla",
+  "peperoncino",
+  "formaggio",
+  "mozzarella",
+  "pomodoro",
+  "basilico",
+  "olive",
+  "capperi",
+  "acciughe",
+  "glutine",
+  "lattosio",
+  "frutta secca",
+];
+
+const SALARY: Record<Role, number> = {
+  dirigente: 2200,
+  cuoco: 1600,
+  cassiere: 1400,
+  cameriere: 1300,
 };
 
 function AdminPage() {
@@ -42,12 +74,18 @@ function AdminPage() {
   const [loginPhone, setLoginPhone] = useState("");
   const [loginAllergens, setLoginAllergens] = useState("dirigente");
   const [date, setDate] = useState(todayISO());
-  const [tab, setTab] = useState<Tab>("prenotazioni");
+  const [tab, setTab] = useState<Tab>("sala");
   const [error, setError] = useState<string | null>(null);
-  const [lookup, setLookup] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const [scanMsg, setScanMsg] = useState<string | null>(null);
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+
+  // waiter order form
+  const [orderTable, setOrderTable] = useState("");
+  const [orderDish, setOrderDish] = useState("");
+  const [orderQty, setOrderQty] = useState(1);
+  const [extraIng, setExtraIng] = useState<string[]>([]);
+  const [removeIng, setRemoveIng] = useState<string[]>([]);
+  const [orderNote, setOrderNote] = useState("");
+
+  // team form
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<Role>("cameriere");
@@ -68,11 +106,7 @@ function AdminPage() {
   const login = useMutation({
     mutationFn: () =>
       managerLogin({
-        data: {
-          name: loginName,
-          phone: loginPhone,
-          allergens: loginAllergens,
-        },
+        data: { name: loginName, phone: loginPhone, allergens: loginAllergens },
       }),
     onSuccess: () => {
       setError(null);
@@ -90,39 +124,61 @@ function AdminPage() {
     queryKey: ["reservations", date],
     queryFn: () => listReservations({ data: { date } }),
     enabled: !!session.data,
-    refetchInterval: 8000,
+    refetchInterval: 6000,
   });
 
   const data = useQuery({
     queryKey: ["staff-data", date],
     queryFn: () => staffData({ data: { date } }),
     enabled: !!session.data,
-    refetchInterval: 8000,
+    refetchInterval: 5000,
   });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["staff-data", date] });
+    qc.invalidateQueries({ queryKey: ["reservations", date] });
+  };
 
   const statusMut = useMutation({
     mutationFn: (p: {
       id: string;
       status: "Confermata" | "In attesa" | "Annullata" | "Completata";
     }) => setReservationStatus({ data: p }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["reservations", date] }),
+    onSuccess: refresh,
   });
 
   const assignMut = useMutation({
     mutationFn: (p: { id: string; table: string; checkin: boolean }) =>
       assignTable({ data: p }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["reservations", date] });
-      qc.invalidateQueries({ queryKey: ["staff-data", date] });
-      setScanMsg("Check-in completato");
-    },
-    onError: (e: Error) => setScanMsg(e.message),
+    onSuccess: refresh,
   });
 
-  const payMut = useMutation({
-    mutationFn: (p: { table: string; method: "Contanti" | "Carta" }) =>
-      payTable({ data: { table: p.table, date, method: p.method } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staff-data", date] }),
+  const addOrderMut = useMutation({
+    mutationFn: () => {
+      const mods = [
+        ...removeIng.map((i) => `SENZA ${i}`),
+        ...extraIng.map((i) => `EXTRA ${i}`),
+        orderNote.trim(),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return addOrder({
+        data: {
+          table_id: orderTable,
+          menu_id: orderDish,
+          quantity: orderQty,
+          notes: mods || undefined,
+          service_date: date,
+        },
+      });
+    },
+    onSuccess: () => {
+      setExtraIng([]);
+      setRemoveIng([]);
+      setOrderNote("");
+      setOrderQty(1);
+      refresh();
+    },
   });
 
   const orderStatusMut = useMutation({
@@ -130,7 +186,13 @@ function AdminPage() {
       id: string;
       status: "queued" | "preparing" | "ready" | "served" | "cancelled";
     }) => orderStatus({ data: p }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staff-data", date] }),
+    onSuccess: refresh,
+  });
+
+  const payMut = useMutation({
+    mutationFn: (p: { table: string; method: "Contanti" | "Carta" }) =>
+      payTable({ data: { table: p.table, date, method: p.method } }),
+    onSuccess: refresh,
   });
 
   const addStaffMut = useMutation({
@@ -146,133 +208,15 @@ function AdminPage() {
     onSuccess: () => {
       setNewName("");
       setNewEmail("");
-      qc.invalidateQueries({ queryKey: ["staff-data", date] });
+      refresh();
     },
   });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code") || params.get("token");
-    if (code) {
-      setLookup(code);
-      setTab("prenotazioni");
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!scanning) return;
-    let stopped = false;
-    let stream: MediaStream | null = null;
-    let anim = 0;
-    let html5Scanner: { stop: () => Promise<void> } | null = null;
-
-    const onCode = (raw: string) => {
-      if (stopped) return;
-      let code = raw.trim().toUpperCase();
-      try {
-        const u = new URL(raw);
-        code = (u.searchParams.get("code") || u.searchParams.get("token") || code).toUpperCase();
-      } catch {
-        /* plain code */
-      }
-      const m = code.match(/CA-[A-Z0-9]+|PL-[A-Z0-9]+|[A-Z0-9]{4,12}/);
-      if (m) code = m[0]!;
-      setLookup(code);
-      setScanMsg(`QR scansionato: ${code}`);
-      setScanning(false);
-    };
-
-    const loadScript = (src: string) =>
-      new Promise<void>((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) {
-          resolve();
-          return;
-        }
-        const script = document.createElement("script");
-        script.src = src;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error("script load failed"));
-        document.head.appendChild(script);
-      });
-
-    const startBarcodeDetector = async () => {
-      const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
-      const video = document.getElementById("qr-video") as HTMLVideoElement | null;
-      if (!video) throw new Error("no video");
-      video.srcObject = stream;
-      await video.play();
-      const tick = async () => {
-        if (stopped) return;
-        try {
-          if (video.readyState >= 2) {
-            const codes = await detector.detect(video);
-            if (codes?.[0]?.rawValue) {
-              onCode(codes[0].rawValue);
-              return;
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-        anim = requestAnimationFrame(tick);
-      };
-      anim = requestAnimationFrame(tick);
-    };
-
-    const startHtml5Qrcode = async () => {
-      await loadScript("https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js");
-      if (stopped) return;
-      const Html5Qrcode = (window as any).Html5Qrcode;
-      if (!Html5Qrcode) throw new Error("Html5Qrcode missing");
-      const scanner = new Html5Qrcode("qr-reader");
-      html5Scanner = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decoded: string) => onCode(decoded),
-        () => {},
-      );
-    };
-
-    (async () => {
-      try {
-        if ("BarcodeDetector" in window) {
-          await startBarcodeDetector();
-          return;
-        }
-        await startHtml5Qrcode();
-      } catch (err) {
-        console.error(err);
-        try {
-          if (!html5Scanner) await startHtml5Qrcode();
-        } catch (err2) {
-          console.error(err2);
-          setScanMsg(
-            "Impossibile usare la fotocamera. Digita il codice a mano oppure consenti l'accesso alla camera.",
-          );
-          setScanning(false);
-        }
-      }
-    })();
-
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(anim);
-      stream?.getTracks().forEach((t) => t.stop());
-      html5Scanner?.stop().catch(() => {});
-    };
-  }, [scanning]);
 
   const tables = data.data?.tables ?? [];
   const orders = data.data?.orders ?? [];
   const menu = data.data?.menu ?? [];
   const team = data.data?.team ?? [];
-  const offers = data.data?.offers ?? [];
+  const sales = (data.data as any)?.sales;
   const resRows = reservations.data ?? [];
 
   const openOrders = useMemo(
@@ -280,8 +224,17 @@ function AdminPage() {
     [orders],
   );
 
+  const kitchenOrders = useMemo(
+    () =>
+      openOrders.filter((o: any) =>
+        ["queued", "pending", "preparing", "ready"].includes(o.status),
+      ),
+    [openOrders],
+  );
+
   const floor = useMemo(() => {
     return tables.map((t: any) => {
+      const tableOrders = openOrders.filter((o: any) => o.table_id === t.id);
       const seated = resRows.find(
         (r: any) =>
           (r.table_ids ?? []).map(String).includes(String(t.id)) &&
@@ -293,21 +246,21 @@ function AdminPage() {
           !["cancelled", "Annullata"].includes(r.status) &&
           !seated,
       );
-      const booking = seated || reserved;
       return {
         ...t,
-        status: seated ? "seated" : reserved ? "reserved" : "free",
-        guestName: booking?.name ?? null,
-        guestCount: booking?.guests ?? null,
-        code: booking?.code ?? null,
-        resId: booking?.id ?? null,
+        status: tableOrders.length || seated ? "busy" : reserved ? "reserved" : "free",
+        guestName: seated?.name ?? reserved?.name ?? null,
+        orderCount: tableOrders.length,
+        bill: tableOrders.reduce(
+          (s: number, o: any) => s + Number(o.unit_price) * Number(o.quantity),
+          0,
+        ),
       };
     });
-  }, [tables, resRows]);
+  }, [tables, openOrders, resRows]);
 
-  const matched = resRows.find(
-    (r: any) => r.code?.toUpperCase() === lookup.trim().toUpperCase(),
-  );
+  const occupied = floor.filter((t: any) => t.status === "busy").length;
+  const free = floor.filter((t: any) => t.status === "free").length;
 
   if (session.isLoading) {
     return <div className="flex min-h-screen items-center justify-center">Caricamento…</div>;
@@ -317,71 +270,57 @@ function AdminPage() {
     return (
       <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 px-5">
         <h1 className="font-serif text-3xl">Area riservata</h1>
-        <p className="text-sm text-muted-foreground">Accesso staff</p>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Nome e cognome</label>
-          <input
-            className="w-full rounded-md border border-input bg-background px-3 py-3"
-            value={loginName}
-            onChange={(e) => setLoginName(e.target.value)}
-            placeholder="Nome e cognome"
-            autoComplete="off"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Telefono</label>
-          <input
-            type="password"
-            className="w-full rounded-md border border-input bg-background px-3 py-3"
-            value={loginPhone}
-            onChange={(e) => setLoginPhone(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && login.mutate()}
-            placeholder="Telefono"
-            autoComplete="off"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Allergeni</label>
-          <select
-            className="w-full rounded-md border border-input bg-background px-3 py-3"
-            value={loginAllergens}
-            onChange={(e) => setLoginAllergens(e.target.value)}
-          >
-            <option value="dirigente">dirigente</option>
-            <option value="cuoco">cuoco</option>
-            <option value="cassiere">cassiere</option>
-            <option value="cameriere">cameriere</option>
-          </select>
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button
-          onClick={() => login.mutate()}
-          disabled={login.isPending || loginName.trim().length < 3 || loginPhone.length < 3}
+        <p className="text-sm text-muted-foreground">
+          Accedi da Prenota ora con le credenziali staff
+        </p>
+        <input
+          className="w-full rounded-md border border-input bg-background px-3 py-3"
+          placeholder="Nome e cognome"
+          value={loginName}
+          onChange={(e) => setLoginName(e.target.value)}
+        />
+        <input
+          type="password"
+          className="w-full rounded-md border border-input bg-background px-3 py-3"
+          placeholder="Telefono"
+          value={loginPhone}
+          onChange={(e) => setLoginPhone(e.target.value)}
+        />
+        <select
+          className="w-full rounded-md border border-input bg-background px-3 py-3"
+          value={loginAllergens}
+          onChange={(e) => setLoginAllergens(e.target.value)}
         >
+          <option value="dirigente">dirigente</option>
+          <option value="cuoco">cuoco</option>
+          <option value="cassiere">cassiere</option>
+          <option value="cameriere">cameriere</option>
+        </select>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <Button onClick={() => login.mutate()} disabled={login.isPending}>
           {login.isPending ? "Accesso…" : "Entra"}
         </Button>
         <Button asChild variant="link">
-          <Link to="/">← Home</Link>
+          <Link to="/prenota">← Prenota ora</Link>
         </Button>
       </div>
     );
   }
 
   const tabs: { id: Tab; label: string }[] = [
+    { id: "dashboard", label: "Dashboard" },
     { id: "prenotazioni", label: "Prenotazioni" },
     { id: "sala", label: "Sala" },
+    { id: "ordini", label: "Ordini" },
     { id: "cucina", label: "Cucina" },
-    { id: "conti", label: "Conti" },
-    { id: "menu", label: "Menù" },
+    { id: "conti", label: "Conti / Checkout" },
     { id: "team", label: "Team" },
-    { id: "offerte", label: "Offerte" },
+    { id: "menu", label: "Menù" },
   ].filter((t) => allowedTabs.includes(t.id));
 
-  const tone = {
-    free: "bg-emerald-500/20 ring-emerald-500/50",
-    reserved: "bg-amber-500/20 ring-amber-500/50",
-    seated: "bg-rose-500/20 ring-rose-500/50",
-  } as const;
+  const toggleIng = (list: string[], set: (v: string[]) => void, item: string) => {
+    set(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
+  };
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -389,7 +328,7 @@ function AdminPage() {
         <div>
           <h1 className="font-serif text-3xl">Admin Campagnola</h1>
           <p className="text-sm text-muted-foreground">
-            {session.data.name} · {session.data.role}
+            {session.data.name} · <span className="text-primary">{session.data.role}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -418,72 +357,107 @@ function AdminPage() {
         ))}
       </div>
 
-      {(tab === "prenotazioni" || tab === "sala") && (
-        <section className="mb-6 rounded-xl border border-border bg-card p-4">
-          <p className="text-[10px] font-semibold tracking-[0.2em] text-primary uppercase">
-            Accoglienza QR
-          </p>
-          <h2 className="mt-1 font-serif text-xl">Scansiona o digita il codice</h2>
-
-          {scanning ? (
-            <div className="mt-3 overflow-hidden rounded-xl bg-black p-2">
-              <video
-                id="qr-video"
-                className="aspect-video w-full rounded-lg object-cover"
-                playsInline
-                muted
-              />
-              <div id="qr-reader" className="w-full overflow-hidden rounded-lg" />
-              <p className="mt-2 px-1 text-center text-[11px] text-white/60">
-                Inquadra il QR del ticket. Se non parte, digita il codice sotto.
+      {/* DIRIGENTE DASHBOARD */}
+      {tab === "dashboard" && (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-xs uppercase text-muted-foreground">Incasso 7 giorni</p>
+              <p className="mt-1 font-serif text-3xl text-primary">
+                € {(sales?.totalRevenue ?? 0).toFixed(2)}
               </p>
-              <Button className="mt-2 w-full" variant="secondary" onClick={() => setScanning(false)}>
-                Chiudi scanner
-              </Button>
+              <p className="text-xs text-muted-foreground">{sales?.totalOrders ?? 0} ordini pagati</p>
             </div>
-          ) : (
-            <Button
-              className="mt-3 w-full"
-              variant="outline"
-              onClick={() => {
-                setScanMsg(null);
-                setScanning(true);
-              }}
-            >
-              Apri scanner fotocamera
-            </Button>
-          )}
-
-          <div className="mt-3 flex gap-2">
-            <input
-              className="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono uppercase"
-              placeholder="CA-XXXX"
-              value={lookup}
-              onChange={(e) => setLookup(e.target.value.toUpperCase())}
-            />
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-xs uppercase text-muted-foreground">Sala ora</p>
+              <p className="mt-1 font-serif text-3xl">
+                <span className="text-rose-400">{occupied}</span>
+                <span className="text-muted-foreground"> / </span>
+                <span className="text-emerald-400">{free}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">occupati / liberi</p>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-xs uppercase text-muted-foreground">Stipendi mensili</p>
+              <p className="mt-1 font-serif text-3xl">
+                €{" "}
+                {(team.length
+                  ? team.reduce(
+                      (s: number, m: any) =>
+                        s + (SALARY[(m.role as Role) ?? "cameriere"] ?? 1300),
+                      0,
+                    )
+                  : Object.values(SALARY).reduce((a, b) => a + b, 0)
+                ).toLocaleString("it-IT")}
+              </p>
+              <p className="text-xs text-muted-foreground">{team.length || 4} dipendenti</p>
+            </div>
           </div>
-          {scanMsg && <p className="mt-2 text-sm text-muted-foreground">{scanMsg}</p>}
 
-          {matched && (
-            <div className="mt-4 rounded-lg border border-primary/40 bg-primary/5 p-4">
+          <div className="rounded-xl border border-border p-4">
+            <p className="mb-3 text-sm font-medium">Stato tavoli</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {floor.map((t: any) => (
+                <div
+                  key={t.id}
+                  className={`rounded-lg p-3 text-center text-sm ${
+                    t.status === "busy"
+                      ? "bg-rose-500/20 text-rose-200"
+                      : t.status === "reserved"
+                        ? "bg-amber-500/20 text-amber-200"
+                        : "bg-emerald-500/20 text-emerald-200"
+                  }`}
+                >
+                  <p className="font-medium">{t.label}</p>
+                  <p className="text-[10px]">
+                    {t.status === "busy"
+                      ? `€ ${t.bill.toFixed(0)}`
+                      : t.status === "reserved"
+                        ? "in arrivo"
+                        : "libero"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(sales?.byDay ?? []).length > 0 && (
+            <div className="rounded-xl border border-border p-4">
+              <p className="mb-2 text-sm font-medium">Guadagni giornalieri</p>
+              <div className="space-y-1 text-sm">
+                {(sales.byDay as any[]).map((d) => (
+                  <div key={d.date} className="flex justify-between border-b border-border py-1">
+                    <span>{d.date}</span>
+                    <span className="tabular-nums">€ {Number(d.revenue).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PRENOTAZIONI + check-in cameriere */}
+      {tab === "prenotazioni" && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Accogli i clienti: assegna tavolo e fai check-in.
+          </p>
+          {resRows.map((r: any) => (
+            <div key={r.id} className="rounded-lg border border-border p-4">
               <p className="font-medium">
-                {matched.name} · {matched.guests} pax
+                {r.name} · {r.guests} pax · {r.time}
               </p>
-              <p className="text-sm text-muted-foreground">
-                {matched.time} · {matched.phone} ·{" "}
-                <span className="font-mono text-primary">{matched.code}</span>
+              <p className="text-xs text-muted-foreground">
+                {r.phone} · <span className="font-mono text-primary">{r.code}</span> · {r.status}
               </p>
-              <p className="text-xs text-muted-foreground">Stato: {matched.status}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-1">
                 {tables.map((t: any) => (
                   <Button
                     key={t.id}
                     size="sm"
-                    variant={selectedTable === t.id ? "default" : "outline"}
-                    onClick={() => {
-                      setSelectedTable(t.id);
-                      assignMut.mutate({ id: matched.id, table: t.id, checkin: true });
-                    }}
+                    variant="outline"
+                    onClick={() => assignMut.mutate({ id: r.id, table: t.id, checkin: true })}
                   >
                     Check-in → {t.label}
                   </Button>
@@ -491,208 +465,366 @@ function AdminPage() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => statusMut.mutate({ id: matched.id, status: "Completata" })}
+                  onClick={() => statusMut.mutate({ id: r.id, status: "Completata" })}
                 >
-                  Segna in sala
+                  In sala
                 </Button>
-              </div>
-            </div>
-          )}
-          {lookup && !matched && (
-            <p className="mt-2 text-sm text-destructive">
-              Nessuna prenotazione con codice {lookup} per questa data.
-            </p>
-          )}
-        </section>
-      )}
-
-      {tab === "prenotazioni" && (
-        <div className="space-y-3">
-          {resRows.map((r: any) => (
-            <div key={r.id} className="rounded-lg border border-border p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium">
-                    {r.name} · {r.guests} pax
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {r.time} · {r.phone} ·{" "}
-                    <span className="font-mono text-primary">{r.code}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{r.status}</p>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {(["Confermata", "In attesa", "Annullata", "Completata"] as const).map((s) => (
-                    <Button
-                      key={s}
-                      size="sm"
-                      variant="outline"
-                      onClick={() => statusMut.mutate({ id: r.id, status: s })}
-                    >
-                      {s}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {tables.map((t: any) => (
-                  <Button
-                    key={t.id}
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => assignMut.mutate({ id: r.id, table: t.id, checkin: true })}
-                  >
-                    → {t.label}
-                  </Button>
-                ))}
               </div>
             </div>
           ))}
           {!resRows.length && (
-            <p className="text-sm text-muted-foreground">Nessuna prenotazione per questa data.</p>
+            <p className="text-sm text-muted-foreground">Nessuna prenotazione oggi.</p>
           )}
         </div>
       )}
 
+      {/* SALA */}
       {tab === "sala" && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-zinc-950 p-4 text-white">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[10px] font-medium tracking-[0.2em] text-white/50 uppercase">
-                Mappa sala · {date}
-              </p>
-              <div className="flex gap-3 text-[10px] text-white/80">
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-emerald-400" /> libero
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-amber-400" /> in arrivo
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-rose-400" /> in sala
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {floor.map((t: any) => (
+            <div
+              key={t.id}
+              className={`rounded-xl border p-4 ${
+                t.status === "busy"
+                  ? "border-rose-500/40 bg-rose-500/5"
+                  : t.status === "reserved"
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : "border-border"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="font-serif text-xl">{t.label}</p>
+                <span className="text-xs uppercase">
+                  {t.status === "busy"
+                    ? "occupato"
+                    : t.status === "reserved"
+                      ? "in arrivo"
+                      : "libero"}
                 </span>
               </div>
+              <p className="text-xs text-muted-foreground">
+                {t.zone} · {t.capacity} posti
+                {t.guestName ? ` · ${t.guestName}` : ""}
+              </p>
+              {t.orderCount > 0 && (
+                <p className="mt-2 text-sm">
+                  {t.orderCount} ordini · € {t.bill.toFixed(2)}
+                </p>
+              )}
+              {role === "cameriere" && (
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  variant="outline"
+                  onClick={() => {
+                    setOrderTable(t.id);
+                    setTab("ordini");
+                  }}
+                >
+                  Prendi ordine
+                </Button>
+              )}
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {floor.map((t: any) => (
+          ))}
+        </div>
+      )}
+
+      {/* CAMERIERE — ORDINI con +/- ingredienti */}
+      {tab === "ordini" && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Scegli tavolo e piatto, aggiungi o togli ingredienti, poi invia in cucina.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">Tavolo</span>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+                value={orderTable}
+                onChange={(e) => setOrderTable(e.target.value)}
+              >
+                <option value="">— seleziona —</option>
+                {tables.map((t: any) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label} ({t.zone})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">Quantità</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+                value={orderQty}
+                onChange={(e) => setOrderQty(Number(e.target.value) || 1)}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Piatto</p>
+            <div className="grid max-h-48 gap-1 overflow-y-auto sm:grid-cols-2">
+              {menu.map((m: any) => (
                 <button
-                  key={t.id}
+                  key={m.id}
                   type="button"
-                  onClick={() => setSelectedTable(t.id)}
-                  className={`flex flex-col justify-between rounded-2xl bg-white/8 p-3 text-left shadow-[0_0_0_1px_rgb(255_255_255/0.1)] transition-transform hover:-translate-y-0.5 ${
-                    selectedTable === t.id ? "ring-2 ring-primary" : ""
+                  onClick={() => setOrderDish(m.id)}
+                  className={`rounded-md border px-3 py-2 text-left text-sm ${
+                    orderDish === m.id
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-accent/50"
                   }`}
                 >
-                  <div
-                    className={`size-7 rounded-full ring-1 ${tone[t.status as keyof typeof tone]}`}
-                  />
-                  <p className="mt-2 truncate text-[12px] font-medium">{t.label}</p>
-                  <p className="truncate text-[10px] text-white/50">
-                    {t.guestName
-                      ? `${t.guestName} · ${t.guestCount}`
-                      : `${t.capacity} posti · ${t.zone}`}
-                  </p>
+                  {m.name}{" "}
+                  <span className="text-primary">€ {Number(m.price).toFixed(2)}</span>
                 </button>
               ))}
             </div>
           </div>
-        </div>
-      )}
 
-      {tab === "cucina" && (
-        <div className="space-y-2">
-          {openOrders
-            .filter((o: any) => ["queued", "preparing", "ready", "pending"].includes(o.status))
-            .map((o: any) => (
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Togli ingredienti
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {COMMON_ING.map((ing) => (
+                <button
+                  key={`rm-${ing}`}
+                  type="button"
+                  onClick={() => toggleIng(removeIng, setRemoveIng, ing)}
+                  className={`rounded-full px-2.5 py-1 text-xs ${
+                    removeIng.includes(ing)
+                      ? "bg-rose-500/30 text-rose-100 ring-1 ring-rose-400"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  − {ing}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Aggiungi ingredienti
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {COMMON_ING.map((ing) => (
+                <button
+                  key={`ex-${ing}`}
+                  type="button"
+                  onClick={() => toggleIng(extraIng, setExtraIng, ing)}
+                  className={`rounded-full px-2.5 py-1 text-xs ${
+                    extraIng.includes(ing)
+                      ? "bg-emerald-500/30 text-emerald-100 ring-1 ring-emerald-400"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  + {ing}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <input
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            placeholder="Note extra (es. cottura al sangue)"
+            value={orderNote}
+            onChange={(e) => setOrderNote(e.target.value)}
+          />
+
+          {(removeIng.length > 0 || extraIng.length > 0 || orderNote) && (
+            <p className="text-xs text-muted-foreground">
+              Modifiche:{" "}
+              {[...removeIng.map((i) => `SENZA ${i}`), ...extraIng.map((i) => `EXTRA ${i}`), orderNote]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
+
+          <Button
+            className="w-full"
+            disabled={!orderTable || !orderDish || addOrderMut.isPending}
+            onClick={() => addOrderMut.mutate()}
+          >
+            {addOrderMut.isPending ? "Invio…" : "Invia ordine in cucina"}
+          </Button>
+
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-sm font-medium">Ordini aperti</p>
+            {openOrders.map((o: any) => (
               <div
                 key={o.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3"
+                className="flex justify-between rounded-md border border-border px-3 py-2 text-sm"
               >
-                <div>
-                  <p className="font-medium">
-                    {o.quantity}× {o.dish_name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Tavolo {o.table_id} · {o.status}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  {(["preparing", "ready", "served", "cancelled"] as const).map((s) => (
-                    <Button
-                      key={s}
-                      size="sm"
-                      variant="outline"
-                      onClick={() => orderStatusMut.mutate({ id: o.id, status: s })}
-                    >
-                      {s}
-                    </Button>
-                  ))}
-                </div>
+                <span>
+                  T{o.table_id} · {o.quantity}× {o.dish_name}
+                  {o.notes ? (
+                    <span className="block text-xs text-muted-foreground">{o.notes}</span>
+                  ) : null}
+                </span>
+                <span className="text-xs uppercase text-primary">{o.status}</span>
               </div>
             ))}
+          </div>
         </div>
       )}
 
+      {/* CUOCO */}
+      {tab === "cucina" && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Ricevi gli ordini, prepara e segna come pronti per la sala.
+          </p>
+          {kitchenOrders.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nessun ordine in cucina.</p>
+          )}
+          {kitchenOrders.map((o: any) => (
+            <div
+              key={o.id}
+              className={`rounded-xl border p-4 ${
+                o.status === "ready"
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : o.status === "preparing"
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : "border-border"
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-serif text-xl">
+                    {o.quantity}× {o.dish_name}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Tavolo {o.table_id} · {o.status}
+                  </p>
+                  {o.notes && (
+                    <p className="mt-1 text-sm font-medium text-primary">{o.notes}</p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {o.status !== "preparing" && o.status !== "ready" && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        orderStatusMut.mutate({ id: o.id, status: "preparing" })
+                      }
+                    >
+                      In preparazione
+                    </Button>
+                  )}
+                  {o.status !== "ready" && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => orderStatusMut.mutate({ id: o.id, status: "ready" })}
+                    >
+                      Pronto → sala
+                    </Button>
+                  )}
+                  {o.status === "ready" && role === "cameriere" && (
+                    <Button
+                      size="sm"
+                      onClick={() => orderStatusMut.mutate({ id: o.id, status: "served" })}
+                    >
+                      Servito
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      orderStatusMut.mutate({ id: o.id, status: "cancelled" })
+                    }
+                  >
+                    Annulla
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CASSIERE — conti + checkout */}
       {tab === "conti" && (
         <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Conti aperti per tavolo. Checkout per chiudere e liberare il tavolo.
+          </p>
           {tables.map((t: any) => {
             const open = openOrders.filter((o: any) => o.table_id === t.id);
+            if (!open.length) return null;
             const total = open.reduce(
               (s: number, o: any) => s + Number(o.unit_price) * Number(o.quantity),
               0,
             );
-            if (!open.length) return null;
             return (
-              <div key={t.id} className="rounded-lg border border-border p-4">
-                <p className="font-serif text-xl">{t.label}</p>
-                <p className="text-sm">
-                  {open.length} voci · € {total.toFixed(2)}
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <Button size="sm" onClick={() => payMut.mutate({ table: t.id, method: "Contanti" })}>
-                    Contanti
+              <div key={t.id} className="rounded-xl border border-border p-4">
+                <div className="flex items-center justify-between">
+                  <p className="font-serif text-2xl">{t.label}</p>
+                  <p className="font-serif text-2xl text-primary">€ {total.toFixed(2)}</p>
+                </div>
+                <ul className="mt-3 divide-y divide-border text-sm">
+                  {open.map((o: any) => (
+                    <li key={o.id} className="flex justify-between py-2">
+                      <span>
+                        {o.quantity}× {o.dish_name}
+                        {o.notes ? (
+                          <span className="block text-xs text-muted-foreground">{o.notes}</span>
+                        ) : null}
+                      </span>
+                      <span className="tabular-nums">
+                        € {(Number(o.unit_price) * Number(o.quantity)).toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      if (confirm(`Checkout ${t.label} — Contanti € ${total.toFixed(2)}?`))
+                        payMut.mutate({ table: t.id, method: "Contanti" });
+                    }}
+                  >
+                    Checkout Contanti
                   </Button>
                   <Button
-                    size="sm"
                     variant="outline"
-                    onClick={() => payMut.mutate({ table: t.id, method: "Carta" })}
+                    onClick={() => {
+                      if (confirm(`Checkout ${t.label} — Carta € ${total.toFixed(2)}?`))
+                        payMut.mutate({ table: t.id, method: "Carta" });
+                    }}
                   >
-                    Carta
+                    Checkout Carta
                   </Button>
                 </div>
               </div>
             );
           })}
+          {!openOrders.length && (
+            <p className="text-sm text-muted-foreground">Nessun conto aperto.</p>
+          )}
         </div>
       )}
 
-      {tab === "menu" && (
-        <div className="space-y-2">
-          <p className="rounded-md border border-accent/40 bg-accent/10 p-3 text-sm">
-            Editor menù in modalità ghost: le modifiche non vengono salvate.
-          </p>
-          {menu.map((m: any) => (
-            <div key={m.id} className="flex justify-between border-b border-border py-2 text-sm">
-              <span>{m.name}</span>
-              <span className="text-primary">€ {Number(m.price).toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
+      {/* TEAM dirigente */}
       {tab === "team" && (
         <div className="space-y-4">
           <div className="space-y-3 rounded-lg border border-border p-4">
-            <p className="text-sm font-medium">Aggiungi membro staff</p>
+            <p className="text-sm font-medium">Nuovo dipendente</p>
             <input
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Nome visualizzato"
+              placeholder="Nome"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
             <input
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Email / username"
+              placeholder="Email"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
             />
@@ -710,23 +842,47 @@ function AdminPage() {
               disabled={!newName || !newEmail || addStaffMut.isPending}
               onClick={() => addStaffMut.mutate()}
             >
-              {addStaffMut.isPending ? "Salvataggio…" : "Aggiungi"}
+              Aggiungi
             </Button>
           </div>
-          {team.map((m: any) => (
-            <div key={m.email || m.id} className="rounded-lg border border-border p-3 text-sm">
-              <span className="font-medium">{m.display_name}</span> · {m.email} ·{" "}
-              <span className="text-primary">{m.role}</span>
-            </div>
-          ))}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Account e stipendi</p>
+            {(team.length
+              ? team
+              : [
+                  { id: "1", display_name: "Gestore", email: "gestore@campagnola", role: "dirigente", active: true },
+                ]
+            ).map((m: any) => (
+              <div
+                key={m.id || m.email}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
+              >
+                <div>
+                  <p className="font-medium">{m.display_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {m.email} · <span className="text-primary">{m.role}</span>
+                    {m.active === false ? " · off" : ""}
+                  </p>
+                </div>
+                <p className="tabular-nums text-muted-foreground">
+                  € {(SALARY[(m.role as Role) ?? "cameriere"] ?? 1300).toLocaleString("it-IT")}
+                  /mese
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {tab === "offerte" && (
+      {tab === "menu" && (
         <div className="space-y-2">
-          {offers.map((o: any) => (
-            <div key={o.id} className="rounded-lg border border-border p-3 text-sm">
-              {o.title} · {o.active ? "attiva" : "off"}
+          <p className="rounded-md border border-accent/40 bg-accent/10 p-3 text-sm">
+            Menù in sola lettura (ghost). Per modifiche contatta lo sviluppatore.
+          </p>
+          {menu.map((m: any) => (
+            <div key={m.id} className="flex justify-between border-b border-border py-2 text-sm">
+              <span>{m.name}</span>
+              <span className="text-primary">€ {Number(m.price).toFixed(2)}</span>
             </div>
           ))}
         </div>
