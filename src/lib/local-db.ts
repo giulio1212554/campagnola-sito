@@ -117,7 +117,7 @@ export function getSettings(): AppSettings {
   return ensureDb().settings;
 }
 
-nexport function getTables(): TableRow[] {
+export function getTables(): TableRow[] {
   return [...ensureDb().tables].sort((a, b) => a.sort_order - b.sort_order);
 }
 
