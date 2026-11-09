@@ -13,13 +13,13 @@ const menuQuery = queryOptions({
   queryFn: () => publicMenu(),
 });
 
-/** Crop focus per section so the dish sits in the middle of the circle */
+/** Crop focus so the dish sits in the middle of the circle */
 const OBJECT_POS: Record<string, string> = {
   antipasti: "object-[center_45%]",
   primi: "object-[center_40%]",
   secondi: "object-[center_42%]",
   pizze: "object-center",
-  dolci: "object-[center_32%]",
+  dolci: "object-[center_28%]",
 };
 
 export const Route = createFileRoute("/menu")({
