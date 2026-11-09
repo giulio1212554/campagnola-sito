@@ -13,6 +13,15 @@ const menuQuery = queryOptions({
   queryFn: () => publicMenu(),
 });
 
+/** Crop focus per section so the dish sits in the middle of the circle */
+const OBJECT_POS: Record<string, string> = {
+  antipasti: "object-[center_45%]",
+  primi: "object-[center_40%]",
+  secondi: "object-[center_42%]",
+  pizze: "object-center",
+  dolci: "object-[center_32%]",
+};
+
 export const Route = createFileRoute("/menu")({
   head: () => ({
     meta: [
@@ -57,11 +66,13 @@ function MenuPage() {
           className="scroll-mt-28 border-t border-border py-10"
         >
           <div className="mb-8 flex flex-col items-center gap-5">
-            <img
-              src={s.image}
-              alt={lang === "it" ? s.title : s.titleEn}
-              className="aspect-square w-60 max-w-full rounded-full object-cover sm:w-72"
-            />
+            <div className="mx-auto flex w-full justify-center">
+              <img
+                src={s.image}
+                alt={lang === "it" ? s.title : s.titleEn}
+                className={`mx-auto block aspect-square h-60 w-60 max-w-full rounded-full object-cover shadow-lg ring-2 ring-primary/20 sm:h-72 sm:w-72 ${OBJECT_POS[s.id] ?? "object-center"}`}
+              />
+            </div>
             <h2 className="text-center text-3xl text-accent">
               {lang === "it" ? s.title : s.titleEn}
             </h2>
