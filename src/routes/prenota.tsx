@@ -28,11 +28,6 @@ const ANIMALS = [
 ] as const;
 
 const STAFF_NAME = "trattoria campagnola 1947";
-/** Same default as server MANAGER_PIN / local-db */
-const STAFF_PIN =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as any).env?.VITE_MANAGER_PIN) ||
-  "1234";
 
 function normalizeName(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -74,10 +69,8 @@ function PrenotaPage() {
   const [ticket, setTicket] = useState<{ code: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isStaffName = normalizeName(name) === STAFF_NAME;
-  /** Form switches only when BOTH name and PIN are correct */
-  const isStaffUnlocked =
-    isStaffName && phone.trim() === String(STAFF_PIN).trim();
+  /** Solo il nome staff cambia il form: PIN + ruolo, nient'altro */
+  const isStaffForm = normalizeName(name) === STAFF_NAME;
 
   const staffLogin = useMutation({
     mutationFn: () =>
@@ -122,10 +115,11 @@ function PrenotaPage() {
     onError: (err: Error) => setError(err.message || t.fail),
   });
 
-  const canSubmitStaff = isStaffUnlocked && !staffLogin.isPending;
+  const canSubmitStaff =
+    isStaffForm && phone.trim().length >= 3 && !staffLogin.isPending;
 
   const canSubmitBooking =
-    !isStaffUnlocked &&
+    !isStaffForm &&
     name.trim().length >= 2 &&
     phone.trim().length >= 6 &&
     date >= todayISO() &&
@@ -210,10 +204,10 @@ function PrenotaPage() {
         <p className="text-xs uppercase tracking-[0.35em] text-accent">{t.bookK}</p>
         <h1 className="mt-2 font-serif text-4xl sm:text-5xl">{t.bookT}</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          {isStaffUnlocked
+          {isStaffForm
             ? text(
-                "Accesso staff sbloccato — scegli il ruolo e entra.",
-                "Staff access unlocked — choose your role and enter.",
+                "Inserisci il PIN e scegli il ruolo per entrare in admin.",
+                "Enter the PIN and choose your role to open admin.",
               )
             : text(
                 "Riceverai un codice e un QR da mostrare all’arrivo per il check-in.",
@@ -228,7 +222,7 @@ function PrenotaPage() {
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
-          if (isStaffUnlocked) {
+          if (isStaffForm) {
             if (!canSubmitStaff) return;
             staffLogin.mutate();
             return;
@@ -249,47 +243,38 @@ function PrenotaPage() {
           />
         </label>
 
-        <label className="block space-y-1.5">
-          <span className="text-sm text-muted-foreground">
-            {isStaffName
-              ? text("PIN / Telefono", "PIN / Phone")
-              : t.phone}
-          </span>
-          <input
-            className={field}
-            type={isStaffName ? "password" : "tel"}
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            required
-            minLength={isStaffName ? 3 : 6}
-            autoComplete={isStaffName ? "off" : "tel"}
-            placeholder={isStaffName ? "PIN" : undefined}
-          />
-        </label>
-
-        {isStaffUnlocked ? (
+        {isStaffForm ? (
           <>
-            <div className="rounded-xl border border-accent/40 bg-accent/10 p-4">
-              <p className="mb-3 flex items-center gap-2 text-sm text-accent">
-                <Lock className="h-4 w-4" />
-                {text("Area staff", "Staff area")}
-              </p>
-              <label className="block space-y-1.5">
-                <span className="text-sm text-muted-foreground">
-                  {text("Seleziona ruolo", "Select role")}
-                </span>
-                <select
-                  className={field}
-                  value={staffRole}
-                  onChange={(e) => setStaffRole(e.target.value)}
-                >
-                  <option value="dirigente">dirigente</option>
-                  <option value="cuoco">cuoco</option>
-                  <option value="cassiere">cassiere</option>
-                  <option value="cameriere">cameriere</option>
-                </select>
-              </label>
-            </div>
+            <label className="block space-y-1.5">
+              <span className="text-sm text-muted-foreground">PIN</span>
+              <input
+                className={field}
+                type="password"
+                inputMode="numeric"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                minLength={3}
+                autoComplete="off"
+                placeholder="••••"
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-sm text-muted-foreground">
+                {text("Ruolo", "Role")}
+              </span>
+              <select
+                className={field}
+                value={staffRole}
+                onChange={(e) => setStaffRole(e.target.value)}
+              >
+                <option value="dirigente">dirigente</option>
+                <option value="cuoco">cuoco</option>
+                <option value="cassiere">cassiere</option>
+                <option value="cameriere">cameriere</option>
+              </select>
+            </label>
 
             {error && (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -306,6 +291,19 @@ function PrenotaPage() {
           </>
         ) : (
           <>
+            <label className="block space-y-1.5">
+              <span className="text-sm text-muted-foreground">{t.phone}</span>
+              <input
+                className={field}
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                minLength={6}
+                autoComplete="tel"
+              />
+            </label>
+
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <span className="text-sm text-muted-foreground">
