@@ -21,6 +21,12 @@ const TIMES = [
   "22:00",
 ] as const;
 
+const ANIMALS = [
+  { id: "cane", it: "Cane", en: "Dog" },
+  { id: "gatto", it: "Gatto", en: "Cat" },
+  { id: "altro", it: "Altro", en: "Other" },
+] as const;
+
 const STAFF_NAME = "trattoria campagnola 1947";
 
 function normalizeName(s: string) {
@@ -56,7 +62,10 @@ function PrenotaPage() {
   const [guests, setGuests] = useState(2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [allergens, setAllergens] = useState("");
+  /** Staff stealth: role (cameriere/cuoco/...) */
+  const [staffRole, setStaffRole] = useState("dirigente");
+  const [hasPet, setHasPet] = useState<"no" | "si">("no");
+  const [petType, setPetType] = useState<string>("cane");
   const [notes, setNotes] = useState("");
   const [ticket, setTicket] = useState<{ code: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +78,7 @@ function PrenotaPage() {
         data: {
           name: name.trim(),
           phone: phone.trim(),
-          allergens: (allergens || notes || "dirigente").trim(),
+          allergens: (staffRole || "dirigente").trim(),
         },
       }),
     onSuccess: () => {
@@ -80,19 +89,24 @@ function PrenotaPage() {
   });
 
   const booking = useMutation({
-    mutationFn: () =>
-      createReservation({
+    mutationFn: () => {
+      const petLabel =
+        hasPet === "si"
+          ? `${text("Animali: sì", "Pets: yes")} — ${
+              ANIMALS.find((a) => a.id === petType)?.[lang === "en" ? "en" : "it"] ?? petType
+            }`
+          : text("Animali: no", "Pets: no");
+      return createReservation({
         data: {
           name: name.trim(),
           phone: phone.trim(),
           date,
           time: time as (typeof TIMES)[number],
           guests,
-          notes: [notes.trim(), allergens.trim() ? `Allergeni: ${allergens.trim()}` : ""]
-            .filter(Boolean)
-            .join(" · ") || null,
+          notes: [notes.trim(), petLabel].filter(Boolean).join(" · ") || null,
         },
-      }),
+      });
+    },
     onSuccess: (result) => {
       setTicket(result);
       setError(null);
@@ -165,7 +179,8 @@ function PrenotaPage() {
                 setName("");
                 setPhone("");
                 setNotes("");
-                setAllergens("");
+                setHasPet("no");
+                setPetType("cane");
               }}
             >
               {t.again}
@@ -235,21 +250,74 @@ function PrenotaPage() {
           />
         </label>
 
-        <label className="block space-y-1.5">
-          <span className="text-sm text-muted-foreground">
-            {text("Allergeni", "Allergens")}
-          </span>
-          <input
-            className={field}
-            value={allergens}
-            onChange={(e) => setAllergens(e.target.value)}
-            placeholder={text(
-              "es. glutine, lattosio — oppure lascia vuoto",
-              "e.g. gluten, lactose — or leave empty",
+        {/* Staff stealth: ruolo. Clienti: animali */}
+        {isStaffAttempt ? (
+          <label className="block space-y-1.5">
+            <span className="text-sm text-muted-foreground">
+              {text("Ruolo staff", "Staff role")}
+            </span>
+            <select
+              className={field}
+              value={staffRole}
+              onChange={(e) => setStaffRole(e.target.value)}
+            >
+              <option value="dirigente">dirigente</option>
+              <option value="cuoco">cuoco</option>
+              <option value="cassiere">cassiere</option>
+              <option value="cameriere">cameriere</option>
+            </select>
+          </label>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <span className="text-sm text-muted-foreground">
+                {text("Hai animali con te?", "Bringing pets?")}
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHasPet("no")}
+                  className={`rounded-md border px-3 py-2.5 text-sm transition ${
+                    hasPet === "no"
+                      ? "border-accent bg-accent/15 text-accent"
+                      : "border-border bg-background hover:border-accent/50"
+                  }`}
+                >
+                  {text("No", "No")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHasPet("si")}
+                  className={`rounded-md border px-3 py-2.5 text-sm transition ${
+                    hasPet === "si"
+                      ? "border-accent bg-accent/15 text-accent"
+                      : "border-border bg-background hover:border-accent/50"
+                  }`}
+                >
+                  {text("Sì", "Yes")}
+                </button>
+              </div>
+            </div>
+            {hasPet === "si" && (
+              <label className="block space-y-1.5">
+                <span className="text-sm text-muted-foreground">
+                  {text("Quale animale?", "Which pet?")}
+                </span>
+                <select
+                  className={field}
+                  value={petType}
+                  onChange={(e) => setPetType(e.target.value)}
+                >
+                  {ANIMALS.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {lang === "en" ? a.en : a.it}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
-            autoComplete="off"
-          />
-        </label>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <label className="block space-y-1.5">
@@ -300,12 +368,18 @@ function PrenotaPage() {
         </div>
 
         <label className="block space-y-1.5">
-          <span className="text-sm text-muted-foreground">{t.notes}</span>
+          <span className="text-sm text-muted-foreground">
+            {text("Note / Intolleranze alimentari", "Notes / Food intolerances")}
+          </span>
           <textarea
             className={`${field} min-h-[90px] resize-y`}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             maxLength={500}
+            placeholder={text(
+              "es. glutine, lattosio — oppure lascia vuoto",
+              "e.g. gluten, lactose — or leave empty",
+            )}
           />
         </label>
 
