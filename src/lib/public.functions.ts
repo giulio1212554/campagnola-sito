@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { MENU, EN } from "./menu";
+import { MENU, dishEn } from "./menu";
 import { getMenuItems, listSolutions, upsertMenuItem } from "./local-db";
 
 export const publicMenu = createServerFn({ method: "GET" }).handler(async () => {
@@ -21,14 +21,16 @@ export const publicMenu = createServerFn({ method: "GET" }).handler(async () => 
   }
 
   const mapped = items.map((d) => {
-    const original = MENU.find((s) => s.id === d.section)?.dishes.find((x) => x.name === d.name);
+    const section = MENU.find((s) => s.id === d.section);
+    const original = section?.dishes.find((x) => x.name === d.name);
+    const en = dishEn(d.name);
     return {
       id: d.id,
       category: d.section,
       name: d.name,
-      name_en: d.name,
+      name_en: original?.nameEn ?? en.nameEn,
       description: d.desc || original?.desc || "",
-      description_en: d.desc || (original?.desc ? EN[original.desc] ?? original.desc : "") || "",
+      description_en: original?.descEn ?? en.descEn ?? d.desc ?? "",
       price: d.price,
       allergens: null as string[] | null,
       available: d.available,
