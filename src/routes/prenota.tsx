@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarCheck, CheckCircle2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale, field, PHONE } from "@/components/site-shell";
@@ -30,7 +30,19 @@ const ANIMALS = [
 const STAFF_NAME = "trattoria campagnola 1947";
 
 function normalizeName(s: string) {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isStaffName(value: string) {
+  const n = normalizeName(value);
+  return n === STAFF_NAME || n === "campagnola 1947" || n.includes("campagnola 1947");
 }
 
 export const Route = createFileRoute("/prenota")({
@@ -69,8 +81,15 @@ function PrenotaPage() {
   const [ticket, setTicket] = useState<{ code: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /** Solo il nome staff cambia il form: PIN + ruolo, nient'altro */
-  const isStaffForm = normalizeName(name) === STAFF_NAME;
+  const staffMode = isStaffName(name);
+
+  // Quando scatta lo staff mode, azzera il campo telefono → diventa PIN vuoto
+  useEffect(() => {
+    if (staffMode) {
+      setPhone("");
+      setError(null);
+    }
+  }, [staffMode]);
 
   const staffLogin = useMutation({
     mutationFn: () =>
@@ -116,10 +135,10 @@ function PrenotaPage() {
   });
 
   const canSubmitStaff =
-    isStaffForm && phone.trim().length >= 3 && !staffLogin.isPending;
+    staffMode && phone.trim().length >= 3 && !staffLogin.isPending;
 
   const canSubmitBooking =
-    !isStaffForm &&
+    !staffMode &&
     name.trim().length >= 2 &&
     phone.trim().length >= 6 &&
     date >= todayISO() &&
@@ -204,10 +223,10 @@ function PrenotaPage() {
         <p className="text-xs uppercase tracking-[0.35em] text-accent">{t.bookK}</p>
         <h1 className="mt-2 font-serif text-4xl sm:text-5xl">{t.bookT}</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          {isStaffForm
+          {staffMode
             ? text(
-                "Inserisci il PIN e scegli il ruolo per entrare in admin.",
-                "Enter the PIN and choose your role to open admin.",
+                "Inserisci il PIN e scegli il ruolo.",
+                "Enter the PIN and choose your role.",
               )
             : text(
                 "Riceverai un codice e un QR da mostrare all’arrivo per il check-in.",
@@ -222,7 +241,7 @@ function PrenotaPage() {
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
-          if (isStaffForm) {
+          if (staffMode) {
             if (!canSubmitStaff) return;
             staffLogin.mutate();
             return;
@@ -243,8 +262,9 @@ function PrenotaPage() {
           />
         </label>
 
-        {isStaffForm ? (
+        {staffMode ? (
           <>
+            {/* Solo PIN + ruolo — niente telefono / data / persone / note */}
             <label className="block space-y-1.5">
               <span className="text-sm text-muted-foreground">PIN</span>
               <input
@@ -257,6 +277,7 @@ function PrenotaPage() {
                 minLength={3}
                 autoComplete="off"
                 placeholder="••••"
+                autoFocus
               />
             </label>
 
