@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { ArrowLeft, CalendarCheck, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CheckCircle2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale, field, PHONE } from "@/components/site-shell";
 import { QrTicket } from "@/components/QrTicket";
@@ -28,6 +28,11 @@ const ANIMALS = [
 ] as const;
 
 const STAFF_NAME = "trattoria campagnola 1947";
+/** Same default as server MANAGER_PIN / local-db */
+const STAFF_PIN =
+  (typeof import.meta !== "undefined" &&
+    (import.meta as any).env?.VITE_MANAGER_PIN) ||
+  "1234";
 
 function normalizeName(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -62,7 +67,6 @@ function PrenotaPage() {
   const [guests, setGuests] = useState(2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  /** Staff stealth: role (cameriere/cuoco/...) */
   const [staffRole, setStaffRole] = useState("dirigente");
   const [hasPet, setHasPet] = useState<"no" | "si">("no");
   const [petType, setPetType] = useState<string>("cane");
@@ -70,7 +74,10 @@ function PrenotaPage() {
   const [ticket, setTicket] = useState<{ code: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isStaffAttempt = normalizeName(name) === STAFF_NAME;
+  const isStaffName = normalizeName(name) === STAFF_NAME;
+  /** Form switches only when BOTH name and PIN are correct */
+  const isStaffUnlocked =
+    isStaffName && phone.trim() === String(STAFF_PIN).trim();
 
   const staffLogin = useMutation({
     mutationFn: () =>
@@ -93,7 +100,8 @@ function PrenotaPage() {
       const petLabel =
         hasPet === "si"
           ? `${text("Animali: sì", "Pets: yes")} — ${
-              ANIMALS.find((a) => a.id === petType)?.[lang === "en" ? "en" : "it"] ?? petType
+              ANIMALS.find((a) => a.id === petType)?.[lang === "en" ? "en" : "it"] ??
+              petType
             }`
           : text("Animali: no", "Pets: no");
       return createReservation({
@@ -114,11 +122,10 @@ function PrenotaPage() {
     onError: (err: Error) => setError(err.message || t.fail),
   });
 
-  const canSubmitStaff =
-    isStaffAttempt && phone.trim().length >= 3 && !staffLogin.isPending;
+  const canSubmitStaff = isStaffUnlocked && !staffLogin.isPending;
 
   const canSubmitBooking =
-    !isStaffAttempt &&
+    !isStaffUnlocked &&
     name.trim().length >= 2 &&
     phone.trim().length >= 6 &&
     date >= todayISO() &&
@@ -203,10 +210,15 @@ function PrenotaPage() {
         <p className="text-xs uppercase tracking-[0.35em] text-accent">{t.bookK}</p>
         <h1 className="mt-2 font-serif text-4xl sm:text-5xl">{t.bookT}</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          {text(
-            "Riceverai un codice e un QR da mostrare all’arrivo per il check-in.",
-            "You will receive a code and QR to show on arrival for check-in.",
-          )}
+          {isStaffUnlocked
+            ? text(
+                "Accesso staff sbloccato — scegli il ruolo e entra.",
+                "Staff access unlocked — choose your role and enter.",
+              )
+            : text(
+                "Riceverai un codice e un QR da mostrare all’arrivo per il check-in.",
+                "You will receive a code and QR to show on arrival for check-in.",
+              )}
         </p>
       </div>
 
@@ -216,7 +228,7 @@ function PrenotaPage() {
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
-          if (isStaffAttempt) {
+          if (isStaffUnlocked) {
             if (!canSubmitStaff) return;
             staffLogin.mutate();
             return;
@@ -238,176 +250,199 @@ function PrenotaPage() {
         </label>
 
         <label className="block space-y-1.5">
-          <span className="text-sm text-muted-foreground">{t.phone}</span>
+          <span className="text-sm text-muted-foreground">
+            {isStaffName
+              ? text("PIN / Telefono", "PIN / Phone")
+              : t.phone}
+          </span>
           <input
             className={field}
-            type="tel"
+            type={isStaffName ? "password" : "tel"}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
-            minLength={isStaffAttempt ? 3 : 6}
-            autoComplete="tel"
+            minLength={isStaffName ? 3 : 6}
+            autoComplete={isStaffName ? "off" : "tel"}
+            placeholder={isStaffName ? "PIN" : undefined}
           />
         </label>
 
-        {/* Staff stealth: ruolo. Clienti: animali */}
-        {isStaffAttempt ? (
-          <label className="block space-y-1.5">
-            <span className="text-sm text-muted-foreground">
-              {text("Ruolo staff", "Staff role")}
-            </span>
-            <select
-              className={field}
-              value={staffRole}
-              onChange={(e) => setStaffRole(e.target.value)}
-            >
-              <option value="dirigente">dirigente</option>
-              <option value="cuoco">cuoco</option>
-              <option value="cassiere">cassiere</option>
-              <option value="cameriere">cameriere</option>
-            </select>
-          </label>
-        ) : (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <span className="text-sm text-muted-foreground">
-                {text("Hai animali con te?", "Bringing pets?")}
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setHasPet("no")}
-                  className={`rounded-md border px-3 py-2.5 text-sm transition ${
-                    hasPet === "no"
-                      ? "border-accent bg-accent/15 text-accent"
-                      : "border-border bg-background hover:border-accent/50"
-                  }`}
-                >
-                  {text("No", "No")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHasPet("si")}
-                  className={`rounded-md border px-3 py-2.5 text-sm transition ${
-                    hasPet === "si"
-                      ? "border-accent bg-accent/15 text-accent"
-                      : "border-border bg-background hover:border-accent/50"
-                  }`}
-                >
-                  {text("Sì", "Yes")}
-                </button>
-              </div>
-            </div>
-            {hasPet === "si" && (
+        {isStaffUnlocked ? (
+          <>
+            <div className="rounded-xl border border-accent/40 bg-accent/10 p-4">
+              <p className="mb-3 flex items-center gap-2 text-sm text-accent">
+                <Lock className="h-4 w-4" />
+                {text("Area staff", "Staff area")}
+              </p>
               <label className="block space-y-1.5">
                 <span className="text-sm text-muted-foreground">
-                  {text("Quale animale?", "Which pet?")}
+                  {text("Seleziona ruolo", "Select role")}
                 </span>
                 <select
                   className={field}
-                  value={petType}
-                  onChange={(e) => setPetType(e.target.value)}
+                  value={staffRole}
+                  onChange={(e) => setStaffRole(e.target.value)}
                 >
-                  {ANIMALS.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {lang === "en" ? a.en : a.it}
+                  <option value="dirigente">dirigente</option>
+                  <option value="cuoco">cuoco</option>
+                  <option value="cassiere">cassiere</option>
+                  <option value="cameriere">cameriere</option>
+                </select>
+              </label>
+            </div>
+
+            {error && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            <Button type="submit" className="h-12 w-full" disabled={!canSubmitStaff}>
+              <Lock className="mr-2 h-4 w-4" />
+              {staffLogin.isPending
+                ? text("Accesso…", "Signing in…")
+                : text("Entra in admin", "Enter admin")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <span className="text-sm text-muted-foreground">
+                  {text("Hai animali con te?", "Bringing pets?")}
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHasPet("no")}
+                    className={`rounded-md border px-3 py-2.5 text-sm transition ${
+                      hasPet === "no"
+                        ? "border-accent bg-accent/15 text-accent"
+                        : "border-border bg-background hover:border-accent/50"
+                    }`}
+                  >
+                    {text("No", "No")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHasPet("si")}
+                    className={`rounded-md border px-3 py-2.5 text-sm transition ${
+                      hasPet === "si"
+                        ? "border-accent bg-accent/15 text-accent"
+                        : "border-border bg-background hover:border-accent/50"
+                    }`}
+                  >
+                    {text("Sì", "Yes")}
+                  </button>
+                </div>
+              </div>
+              {hasPet === "si" && (
+                <label className="block space-y-1.5">
+                  <span className="text-sm text-muted-foreground">
+                    {text("Quale animale?", "Which pet?")}
+                  </span>
+                  <select
+                    className={field}
+                    value={petType}
+                    onChange={(e) => setPetType(e.target.value)}
+                  >
+                    {ANIMALS.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {lang === "en" ? a.en : a.it}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <label className="block space-y-1.5">
+                <span className="text-sm text-muted-foreground">{text("Data", "Date")}</span>
+                <input
+                  className={field}
+                  type="date"
+                  value={date}
+                  min={todayISO()}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-sm text-muted-foreground">{text("Persone", "Guests")}</span>
+                <select
+                  className={field}
+                  value={guests}
+                  onChange={(e) => setGuests(Number(e.target.value))}
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
                     </option>
                   ))}
                 </select>
               </label>
-            )}
-          </div>
-        )}
+            </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <label className="block space-y-1.5">
-            <span className="text-sm text-muted-foreground">{text("Data", "Date")}</span>
-            <input
-              className={field}
-              type="date"
-              value={date}
-              min={todayISO()}
-              onChange={(e) => setDate(e.target.value)}
-              required={!isStaffAttempt}
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-sm text-muted-foreground">{text("Persone", "Guests")}</span>
-            <select
-              className={field}
-              value={guests}
-              onChange={(e) => setGuests(Number(e.target.value))}
+            <div className="space-y-2">
+              <span className="text-sm text-muted-foreground">{text("Orario", "Time")}</span>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {TIMES.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setTime(slot)}
+                    className={`rounded-md border px-2 py-2.5 text-sm transition ${
+                      time === slot
+                        ? "border-accent bg-accent/15 text-accent"
+                        : "border-border bg-background hover:border-accent/50"
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="block space-y-1.5">
+              <span className="text-sm text-muted-foreground">
+                {text("Note / Intolleranze alimentari", "Notes / Food intolerances")}
+              </span>
+              <textarea
+                className={`${field} min-h-[90px] resize-y`}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                maxLength={500}
+                placeholder={text(
+                  "es. glutine, lattosio — oppure lascia vuoto",
+                  "e.g. gluten, lactose — or leave empty",
+                )}
+              />
+            </label>
+
+            {error && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              className="h-12 w-full"
+              disabled={!canSubmitBooking || booking.isPending}
             >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+              <CalendarCheck className="mr-2 h-4 w-4" />
+              {booking.isPending ? t.sending : t.send}
+            </Button>
 
-        <div className="space-y-2">
-          <span className="text-sm text-muted-foreground">{text("Orario", "Time")}</span>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {TIMES.map((slot) => (
-              <button
-                key={slot}
-                type="button"
-                onClick={() => setTime(slot)}
-                className={`rounded-md border px-2 py-2.5 text-sm transition ${
-                  time === slot
-                    ? "border-accent bg-accent/15 text-accent"
-                    : "border-border bg-background hover:border-accent/50"
-                }`}
-              >
-                {slot}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <label className="block space-y-1.5">
-          <span className="text-sm text-muted-foreground">
-            {text("Note / Intolleranze alimentari", "Notes / Food intolerances")}
-          </span>
-          <textarea
-            className={`${field} min-h-[90px] resize-y`}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            maxLength={500}
-            placeholder={text(
-              "es. glutine, lattosio — oppure lascia vuoto",
-              "e.g. gluten, lactose — or leave empty",
-            )}
-          />
-        </label>
-
-        {error && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
+            <p className="text-center text-xs text-muted-foreground">
+              {text("Oppure chiama", "Or call")}{" "}
+              <a href={`tel:${PHONE}`} className="text-accent">
+                {PHONE}
+              </a>
+            </p>
+          </>
         )}
-
-        <Button
-          type="submit"
-          className="h-12 w-full"
-          disabled={
-            isStaffAttempt
-              ? !canSubmitStaff
-              : !canSubmitBooking || booking.isPending
-          }
-        >
-          <CalendarCheck className="mr-2 h-4 w-4" />
-          {staffLogin.isPending || booking.isPending ? t.sending : t.send}
-        </Button>
-
-        <p className="text-center text-xs text-muted-foreground">
-          {text("Oppure chiama", "Or call")}{" "}
-          <a href={`tel:${PHONE}`} className="text-accent">
-            {PHONE}
-          </a>
-        </p>
       </form>
     </div>
   );
