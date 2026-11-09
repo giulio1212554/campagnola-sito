@@ -143,7 +143,12 @@ export const managerLogin = createServerFn({ method: "POST" })
   });
 
 export const managerLogout = createServerFn({ method: "POST" }).handler(async () => {
-  setCookie("campagnola_staff", "", { httpOnly: true, path: "/", maxAge: 0 });
+  setCookie("campagnola_staff", "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
   return { ok: true };
 });
 
