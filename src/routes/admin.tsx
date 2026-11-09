@@ -73,7 +73,17 @@ function AdminPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<Role>("cameriere");
 
-  const session = useQuery({ queryKey: ["staff-session"], queryFn: () => getStaffSession(), retry: false });
+  const session = useQuery({
+    queryKey: ["staff-session"],
+    queryFn: async () => {
+      try {
+        return await getStaffSession();
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
   const role = (session.data?.role ?? "dirigente") as Role;
   const allowedTabs = ROLE_TABS[role] ?? ROLE_TABS.dirigente;
 
@@ -92,7 +102,16 @@ function AdminPage() {
   });
   const logout = useMutation({
     mutationFn: () => managerLogout(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staff-session"] }),
+    onSuccess: () => {
+      qc.setQueryData(["staff-session"], null);
+      qc.removeQueries({ queryKey: ["staff-session"] });
+      qc.removeQueries({ queryKey: ["staff-data"] });
+      qc.removeQueries({ queryKey: ["reservations"] });
+    },
+    onError: () => {
+      qc.setQueryData(["staff-session"], null);
+      qc.removeQueries({ queryKey: ["staff-session"] });
+    },
   });
 
   const reservations = useQuery({
@@ -396,7 +415,14 @@ function AdminPage() {
         </div>
         <div className="flex items-center gap-2">
           <input type="date" className="rounded-md border border-input bg-background px-3 py-2 text-sm" value={date} onChange={(e) => setDate(e.target.value)} />
-          <Button variant="outline" size="sm" onClick={() => logout.mutate()}>Esci</Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={logout.isPending}
+            onClick={() => logout.mutate()}
+          >
+            {logout.isPending ? "…" : "Esci"}
+          </Button>
         </div>
       </div>
 
@@ -518,14 +544,6 @@ function AdminPage() {
             {addOrderMut.isPending ? "Invio…" : "Invia ordine in cucina"}
           </Button>
           {orderMsg && <p className={`text-sm ${orderMsg.includes("✓") ? "text-emerald-400" : "text-destructive"}`}>{orderMsg}</p>}
-          <div className="space-y-2 border-t border-border pt-4">
-            {openOrders.map((o: any) => (
-              <div key={o.id} className="flex justify-between rounded-md border border-border px-3 py-2 text-sm">
-                <span>T{o.table_id} · {o.quantity}× {o.dish_name}</span>
-                <span className="text-xs uppercase text-primary">{o.status}</span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -544,9 +562,6 @@ function AdminPage() {
                 {o.status !== "ready" && (
                   <Button size="sm" variant="secondary" onClick={() => orderStatusMut.mutate({ id: o.id, status: "ready" })}>Pronto → sala</Button>
                 )}
-                {o.status === "ready" && (role === "cameriere" || role === "dirigente") && (
-                  <Button size="sm" onClick={() => orderStatusMut.mutate({ id: o.id, status: "served" })}>Servito</Button>
-                )}
               </div>
             </div>
           ))}
@@ -555,21 +570,14 @@ function AdminPage() {
 
       {tab === "conti" && (
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Conti aperti. Chiudi con Checkout Contanti o Carta.
-          </p>
+          <p className="text-sm text-muted-foreground">Conti aperti. Chiudi con Checkout Contanti o Carta.</p>
           {payMsg && (
-            <p className={`text-sm ${payMsg.includes("completato") ? "text-emerald-400" : "text-destructive"}`}>
-              {payMsg}
-            </p>
+            <p className={`text-sm ${payMsg.includes("completato") ? "text-emerald-400" : "text-destructive"}`}>{payMsg}</p>
           )}
           {tables.map((t: any) => {
             const open = openOrders.filter((o: any) => String(o.table_id) === String(t.id));
             if (!open.length) return null;
-            const total = open.reduce(
-              (s: number, o: any) => s + Number(o.unit_price) * Number(o.quantity),
-              0,
-            );
+            const total = open.reduce((s: number, o: any) => s + Number(o.unit_price) * Number(o.quantity), 0);
             return (
               <div key={t.id} className="rounded-xl border border-border p-4">
                 <div className="flex justify-between">
@@ -579,47 +587,27 @@ function AdminPage() {
                 <ul className="mt-3 divide-y divide-border text-sm">
                   {open.map((o: any) => (
                     <li key={o.id} className="flex justify-between py-2">
-                      <span>
-                        {o.quantity}× {o.dish_name}{" "}
-                        <span className="text-xs text-muted-foreground">({o.status})</span>
-                      </span>
-                      <span className="tabular-nums">
-                        € {(Number(o.unit_price) * Number(o.quantity)).toFixed(2)}
-                      </span>
+                      <span>{o.quantity}× {o.dish_name}</span>
+                      <span>€ {(Number(o.unit_price) * Number(o.quantity)).toFixed(2)}</span>
                     </li>
                   ))}
                 </ul>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    disabled={payMut.isPending}
-                    onClick={() => {
-                      setPayMsg(null);
-                      if (confirm(`Checkout Contanti — ${t.label} € ${total.toFixed(2)}?`))
-                        payMut.mutate({ table: String(t.id), method: "Contanti" });
-                    }}
-                  >
-                    Checkout Contanti
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={payMut.isPending}
-                    onClick={() => {
-                      setPayMsg(null);
-                      if (confirm(`Checkout Carta — ${t.label} € ${total.toFixed(2)}?`))
-                        payMut.mutate({ table: String(t.id), method: "Carta" });
-                    }}
-                  >
-                    Checkout Carta
-                  </Button>
+                  <Button disabled={payMut.isPending} onClick={() => {
+                    setPayMsg(null);
+                    if (confirm(`Checkout Contanti — ${t.label} € ${total.toFixed(2)}?`))
+                      payMut.mutate({ table: String(t.id), method: "Contanti" });
+                  }}>Checkout Contanti</Button>
+                  <Button variant="outline" disabled={payMut.isPending} onClick={() => {
+                    setPayMsg(null);
+                    if (confirm(`Checkout Carta — ${t.label} € ${total.toFixed(2)}?`))
+                      payMut.mutate({ table: String(t.id), method: "Carta" });
+                  }}>Checkout Carta</Button>
                 </div>
               </div>
             );
           })}
-          {!openOrders.length && (
-            <p className="text-sm text-muted-foreground">
-              Nessun conto aperto. Gli ordini del cameriere compaiono qui finché non fai checkout.
-            </p>
-          )}
+          {!openOrders.length && <p className="text-sm text-muted-foreground">Nessun conto aperto.</p>}
         </div>
       )}
 
@@ -636,12 +624,6 @@ function AdminPage() {
             </select>
             <Button disabled={!newName || !newEmail || addStaffMut.isPending} onClick={() => addStaffMut.mutate()}>Aggiungi</Button>
           </div>
-          {team.map((m: any) => (
-            <div key={m.email || m.id} className="flex justify-between rounded-lg border border-border p-3 text-sm">
-              <span>{m.display_name} · {m.role}</span>
-              <span>€ {(SALARY[(m.role as Role) ?? "cameriere"] ?? 1300).toLocaleString("it-IT")}/mese</span>
-            </div>
-          ))}
         </div>
       )}
 
