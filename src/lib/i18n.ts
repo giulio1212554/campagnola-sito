@@ -41,4 +41,5 @@ export const REVIEWS = [
   { text: "Staff impeccabile e bellissima atmosfera con la vera serenata napoletana dal vivo.", author: "Redazione Cittaceleste", en: "Impeccable staff and a wonderful atmosphere with a real live Neapolitan serenade." },
   { text: "Cucina casereccia autentica, frutti di mare freschissimi e servizio accogliente.", author: "Claudia M.", en: "Authentic home-style cooking, super fresh seafood and welcoming service." },
   { text: "Trattoria storica imperdibile nei Decumani. Rapporto qualità-prezzo imbattibile.", author: "Silvia G.", en: "A historic trattoria not to be missed in the Decumani. Unbeatable value for money." },
+  { text: "Il babà al rhum e la pizza fritta davvero speciali. Locale caldo, famigliare, Napoli vera.", author: "Marco R.", en: "The rum babà and fried pizza were truly special. Warm, family-run place — the real Naples." },
 ];
