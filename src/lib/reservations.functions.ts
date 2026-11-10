@@ -70,7 +70,8 @@ const reservationSchema = z.object({
 });
 
 export const createReservation = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => reservationSchema.parse(dn  .handler(async ({ data }) => {
+  .inputValidator((d: unknown) => reservationSchema.parse(d))
+  .handler(async ({ data }) => {
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Rome",
     }).format(new Date());
@@ -78,7 +79,6 @@ export const createReservation = createServerFn({ method: "POST" })
     if (Number.isNaN(day.getTime()) || data.date < today) {
       throw new Error("Scegli una data da oggi in poi");
     }
-    // Martedì chiuso
     if (day.getUTCDay() === 2) {
       throw new Error("Il martedì siamo chiusi");
     }
@@ -91,7 +91,6 @@ export const createReservation = createServerFn({ method: "POST" })
       if (r.res_time === data.time) for (const id of r.table_ids) busy.add(id);
     }
 
-    // Prefer free table with enough seats; otherwise largest free; otherwise none
     const freeEnough = tables
       .filter((t) => !busy.has(t.id) && t.capacity >= data.guests)
       .sort((a, b) => a.capacity - b.capacity);
