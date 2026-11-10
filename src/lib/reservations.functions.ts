@@ -58,17 +58,29 @@ const reservationSchema = z.object({
   phone: z.string().trim().min(6).max(25),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z.enum(TIMES),
-  guests: z.number().int().min(1).max(12),
-  notes: z.string().trim().max(500).nullable().optional().transform((v) => v || null),
+  guests: z.coerce.number().int().min(1).max(20),
+  notes: z
+    .union([z.string(), z.null(), z.undefined()])
+    .optional()
+    .transform((v) => {
+      if (v == null) return null;
+      const s = String(v).trim();
+      return s ? s.slice(0, 500) : null;
+    }),
 });
 
 export const createReservation = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => reservationSchema.parse(d))
-  .handler(async ({ data }) => {
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome" }).format(new Date());
+  .inputValidator((d: unknown) => reservationSchema.parse(dn  .handler(async ({ data }) => {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Rome",
+    }).format(new Date());
     const day = new Date(`${data.date}T12:00:00Z`);
-    if (Number.isNaN(day.getTime()) || data.date < today || day.getUTCDay() === 2) {
-      throw new Error("Data non disponibile");
+    if (Number.isNaN(day.getTime()) || data.date < today) {
+      throw new Error("Scegli una data da oggi in poi");
+    }
+    // Martedì chiuso
+    if (day.getUTCDay() === 2) {
+      throw new Error("Il martedì siamo chiusi");
     }
 
     const tables = getTables();
@@ -78,13 +90,19 @@ export const createReservation = createServerFn({ method: "POST" })
       if (r.status === "cancelled") continue;
       if (r.res_time === data.time) for (const id of r.table_ids) busy.add(id);
     }
-    const free = tables
+
+    // Prefer free table with enough seats; otherwise largest free; otherwise none
+    const freeEnough = tables
       .filter((t) => !busy.has(t.id) && t.capacity >= data.guests)
       .sort((a, b) => a.capacity - b.capacity);
-    if (!free[0]) throw new Error("Nessun tavolo disponibile");
+    const freeAny = tables
+      .filter((t) => !busy.has(t.id))
+      .sort((a, b) => b.capacity - a.capacity);
+    const chosen = freeEnough[0] ?? freeAny[0] ?? null;
+    const tableIds = chosen ? [chosen.id] : [];
 
     let inserted: ReservationRow | null = null;
-    for (let attempt = 0; attempt < 8 && !inserted; attempt += 1) {
+    for (let attempt = 0; attempt < 12 && !inserted; attempt += 1) {
       const code = makeCode();
       if (getReservationByCode(code)) continue;
       inserted = insertReservation({
@@ -96,11 +114,11 @@ export const createReservation = createServerFn({ method: "POST" })
         res_time: data.time,
         adults: data.guests,
         children: 0,
-        table_ids: [free[0].id],
+        table_ids: tableIds,
         status: "pending",
       });
     }
-    if (!inserted) throw new Error("Impossibile salvare la prenotazione");
+    if (!inserted) throw new Error("Impossibile salvare la prenotazione, riprova");
     return { code: inserted.code, token: inserted.code };
   });
 
@@ -116,7 +134,6 @@ export const managerLogin = createServerFn({ method: "POST" })
         name: z.string().max(120),
         phone: z.string().max(100),
         allergens: z.string().max(40),
-        // backward compat
         pin: z.string().max(100).optional(),
       })
       .parse(d),
@@ -159,7 +176,12 @@ export const getStaffSession = createServerFn({ method: "POST" })
 export const listReservations = createServerFn({ method: "POST" })
   .middleware([requireStaff])
   .inputValidator((d: unknown) =>
-    z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), token: z.string().optional() }).parse(d),
+    z
+      .object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        token: z.string().optional(),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
     if (data.token) {
@@ -182,10 +204,20 @@ const STATUS_MAP: Record<string, string> = {
 export const setReservationStatus = createServerFn({ method: "POST" })
   .middleware([requireStaff])
   .inputValidator((d: unknown) =>
-    z.object({
-      id: z.string(),
-      status: z.enum(["Confermata","In attesa","Annullata","Completata","pending","seated","cancelled"]),
-    }).parse(d),
+    z
+      .object({
+        id: z.string(),
+        status: z.enum([
+          "Confermata",
+          "In attesa",
+          "Annullata",
+          "Completata",
+          "pending",
+          "seated",
+          "cancelled",
+        ]),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
     const { from, to } = isoRange();
@@ -199,11 +231,13 @@ export const setReservationStatus = createServerFn({ method: "POST" })
 export const assignTable = createServerFn({ method: "POST" })
   .middleware([requireStaff])
   .inputValidator((d: unknown) =>
-    z.object({
-      id: z.string(),
-      table: z.union([z.string(), z.number()]),
-      checkin: z.boolean(),
-    }).parse(d),
+    z
+      .object({
+        id: z.string(),
+        table: z.union([z.string(), z.number()]),
+        checkin: z.boolean(),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
     const { from, to } = isoRange();
